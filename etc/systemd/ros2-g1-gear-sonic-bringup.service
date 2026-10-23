@@ -1,7 +1,8 @@
 [Unit]
 Description=Unitree G1 ROS 2 Gear Sonic Bringup
 Requires=docker.service gear-sonic.service inspire-g1.service
-After=docker.service gear-sonic.service inspire-g1.service
+Wants=ros-interaction.service
+After=docker.service gear-sonic.service inspire-g1.service ros-interaction.service
 
 [Service]
 Type=simple
@@ -19,7 +20,8 @@ ExecStart=/home/unitree/.local/bin/rocker --mode non-interactive --name g1-bring
 ExecStop=-/usr/bin/docker stop -s SIGINT --time 30 g1-bringup
 
 Restart=no
-TimeoutStopSec=45   # > docker stop grace above
+# Longer than the docker stop grace period above.
+TimeoutStopSec=45
 
 StandardOutput=journal
 StandardError=journal
