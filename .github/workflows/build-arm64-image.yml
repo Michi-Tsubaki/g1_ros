@@ -1,0 +1,74 @@
+name: Build ARM64 image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA, branch, or tag in this repository to build
+        required: true
+        default: 821452af42bf730a297296fce13477ee05937a02
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Compute image tags from the checked-out commit
+        id: meta
+        env:
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          image="ghcr.io/${IMAGE_NAME,,}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "short_tag=${image}:${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "full_tag=${image}:${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test on ARM64
+        uses: ros-industrial/industrial_ci@master
+        env:
+          ROS_DISTRO: jazzy
+          ROS_REPO: main
+          UPSTREAM_WORKSPACE: .github/upstream.jazzy.repos
+          UPSTREAM_CMAKE_ARGS: --packages-select g1_description unitree_sdk2
+          ROSDEP_SKIP_KEYS: catkin g1_description gazebo joint_state_publisher_gui message_generation message_runtime moveit_ros_control_interface roscpp roslaunch rviz unitree_sdk2
+          DOCKER_COMMIT: ${{ steps.meta.outputs.short_tag }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish commit-tagged image
+        env:
+          SHORT_TAG: ${{ steps.meta.outputs.short_tag }}
+          FULL_TAG: ${{ steps.meta.outputs.full_tag }}
+          SOURCE_SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$SHORT_TAG")"
+          test "$platform" = linux/arm64
+          docker tag "$SHORT_TAG" "$FULL_TAG"
+          docker push "$FULL_TAG"
+          docker push "$SHORT_TAG"
+          {
+            echo "Built commit: ${SOURCE_SHA}"
+            echo "Platform: ${platform}"
+            echo '```bash'
+            echo "docker pull ${SHORT_TAG}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
